@@ -182,6 +182,27 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
 /* ─── LRT 결과 ─── */
 .lrt-box { background: #f8fafc; border: 1px solid var(--border); border-radius: 6px; padding: 12px 16px; margin-top: 12px; font-size: 13px; }
 .lrt-box strong { color: var(--primary); }
+
+/* ─── 기초 통계 탭 ─── */
+.desc-tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
+.desc-tab-btn {
+  padding: 7px 14px; border: none; background: none; cursor: pointer;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+  border-bottom: 2px solid transparent; margin-bottom: -2px;
+  transition: color .2s;
+}
+.desc-tab-btn:hover { color: var(--accent); }
+.desc-tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.desc-pane { display: none; }
+.desc-pane.active { display: block; }
+
+/* ─── 상관행렬 ─── */
+.corr-table { border-collapse: collapse; font-size: 12px; }
+.corr-table th, .corr-table td { padding: 6px 10px; text-align: center; border: 1px solid var(--border); min-width: 60px; }
+.corr-table th { background: var(--primary); color: #fff; font-size: 11px; }
+
+/* ─── 교차수준 상호작용 ─── */
+.interaction-term { background: #fef3c7; padding: 2px 6px; border-radius: 3px; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -190,7 +211,7 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
 <header class="header">
   <div>
     <h1>🔬 다층모형분석 (Multilevel Modeling)</h1>
-    <div class="sub">R lme4 / lmerTest 기반 · 기저모형 → 무선절편 → 무선기울기</div>
+    <div class="sub">R lme4 / lmerTest 기반 · 기저모형 → 무선절편 → 무선기울기 → 교차수준 상호작용</div>
   </div>
   <div id="api-status">
     <div class="dot" id="status-dot"></div>
@@ -211,6 +232,99 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
     </div>
     <div id="file-info"></div>
     <div class="preview-wrap" id="preview-wrap"></div>
+  </div>
+
+  <!-- ══ 기초 통계 분석 ══ -->
+  <div class="card hidden" id="card-desc">
+    <div class="card-title"><span class="step-badge">✦</span> 기초 통계 분석</div>
+
+    <div class="desc-tabs">
+      <button class="desc-tab-btn active" onclick="switchDescTab('dtab-summary',this)">기술통계</button>
+      <button class="desc-tab-btn" onclick="switchDescTab('dtab-dist',this)">분포</button>
+      <button class="desc-tab-btn" onclick="switchDescTab('dtab-corr',this)">상관행렬</button>
+      <button class="desc-tab-btn" onclick="switchDescTab('dtab-group',this)">집단별 비교</button>
+      <button class="desc-tab-btn" onclick="switchDescTab('dtab-viz',this)">시각화</button>
+    </div>
+
+    <div class="desc-pane active" id="dtab-summary">
+      <div class="tbl-wrap" id="desc-summary-tbl"></div>
+    </div>
+
+    <div class="desc-pane" id="dtab-dist">
+      <div class="form-row">
+        <div>
+          <label class="field-label">변수 선택</label>
+          <select class="ctrl" id="sel-dist-var" onchange="renderDistribution()">
+            <option value="">-- 선택 --</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-wrap" id="dist-chart-wrap">
+        <canvas id="dist-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="desc-pane" id="dtab-corr">
+      <div class="tbl-wrap" id="corr-matrix-tbl"></div>
+    </div>
+
+    <div class="desc-pane" id="dtab-group">
+      <div class="form-row">
+        <div>
+          <label class="field-label">집단변수</label>
+          <select class="ctrl" id="sel-grp-var" onchange="renderGroupComparison()">
+            <option value="">-- 선택 --</option>
+          </select>
+        </div>
+        <div>
+          <label class="field-label">비교변수</label>
+          <select class="ctrl" id="sel-cmp-var" onchange="renderGroupComparison()">
+            <option value="">-- 선택 --</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-wrap tall" id="grp-chart-wrap">
+        <canvas id="grp-chart"></canvas>
+      </div>
+      <div class="tbl-wrap" id="grp-tbl" style="margin-top:16px"></div>
+    </div>
+
+    <div class="desc-pane" id="dtab-viz">
+      <div style="margin-bottom:12px">
+        <label class="field-label">차트 유형</label>
+        <select class="ctrl" id="sel-viz-type" onchange="onVizTypeChange()" style="max-width:200px">
+          <option value="scatter">산점도 (Scatter Plot)</option>
+          <option value="box">박스플롯 (Box Plot)</option>
+        </select>
+      </div>
+      <div id="viz-scatter-opts" class="form-row triple">
+        <div>
+          <label class="field-label">X 변수</label>
+          <select class="ctrl" id="sel-viz-x" onchange="renderViz()"><option value="">-- 선택 --</option></select>
+        </div>
+        <div>
+          <label class="field-label">Y 변수</label>
+          <select class="ctrl" id="sel-viz-y" onchange="renderViz()"><option value="">-- 선택 --</option></select>
+        </div>
+        <div>
+          <label class="field-label">집단 색상 구분 (선택)</label>
+          <select class="ctrl" id="sel-viz-color" onchange="renderViz()"><option value="">없음</option></select>
+        </div>
+      </div>
+      <div id="viz-box-opts" class="form-row" style="display:none">
+        <div>
+          <label class="field-label">집단변수</label>
+          <select class="ctrl" id="sel-viz-bgrp" onchange="renderViz()"><option value="">-- 선택 --</option></select>
+        </div>
+        <div>
+          <label class="field-label">수치변수</label>
+          <select class="ctrl" id="sel-viz-bval" onchange="renderViz()"><option value="">-- 선택 --</option></select>
+        </div>
+      </div>
+      <div class="chart-wrap tall" id="viz-chart-wrap">
+        <canvas id="viz-chart"></canvas>
+      </div>
+    </div>
   </div>
 
   <!-- ══ STEP 2: 변수 설정 ══ -->
@@ -262,6 +376,16 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
       </p>
     </div>
 
+    <div style="margin-bottom:16px">
+      <label class="field-label">교차수준 상호작용 (Cross-Level Interaction, 선택)</label>
+      <div class="check-group" id="chk-cross" style="max-height:140px">
+        <span class="empty-hint">L1·L2 독립변수를 각각 1개 이상 선택하면 상호작용 항이 표시됩니다.</span>
+      </div>
+      <p style="font-size:12px;color:var(--muted);margin-top:6px">
+        ※ 선택 시 교차수준 상호작용 모형(Model 3)을 추가로 적합합니다. 상호작용에 포함된 L1 변수는 자동으로 무선기울기에 포함됩니다.
+      </p>
+    </div>
+
     <div style="text-align:center; margin-top:10px">
       <button class="btn btn-success btn-lg" id="btn-run" onclick="runAnalysis()" disabled>
         ▶ 분석 실행
@@ -281,6 +405,7 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
       <button class="tab-btn" onclick="switchTab('tab-null',this)">M0 기저모형</button>
       <button class="tab-btn" id="tab-ri-btn" onclick="switchTab('tab-ri',this)">M1 무선절편</button>
       <button class="tab-btn" id="tab-rs-btn" onclick="switchTab('tab-rs',this)">M2 무선기울기</button>
+      <button class="tab-btn" id="tab-cl-btn" onclick="switchTab('tab-cl',this)">M3 교차수준</button>
       <button class="tab-btn" onclick="switchTab('tab-comp',this)">📊 모형 비교</button>
     </div>
 
@@ -310,6 +435,13 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
     <div class="tab-pane" id="tab-rs">
       <div id="rs-content">
         <div class="alert alert-info">무선기울기 변수를 선택해야 이 모형이 적합됩니다.</div>
+      </div>
+    </div>
+
+    <!-- M3 교차수준 상호작용 -->
+    <div class="tab-pane" id="tab-cl">
+      <div id="cl-content">
+        <div class="alert alert-info">교차수준 상호작용을 선택해야 이 모형이 적합됩니다.</div>
       </div>
     </div>
 
@@ -403,6 +535,8 @@ function handleFile(file) {
       showFileInfo(file, results);
       renderPreview(results.data.slice(0, 6), allColumns);
       buildVariableSelectors();
+      document.getElementById('card-desc').classList.remove('hidden');
+      renderDescriptiveStats();
       document.getElementById('card-vars').classList.remove('hidden');
       document.getElementById('card-model').classList.remove('hidden');
     },
@@ -489,6 +623,7 @@ function onVarChange() {
     const cb = document.getElementById(`rs_${col}`);
     if (cb) cb.checked = true;
   });
+  updateCrossInteractions();
   validateRunBtn();
 }
 
@@ -514,7 +649,8 @@ async function runAnalysis() {
   document.getElementById('btn-run').disabled = true;
   document.getElementById('card-results').classList.add('hidden');
 
-  const payload = { data: columnData, outcome, group_var, l1_preds, l2_covs, rand_slopes };
+  const cross_interactions = getCrossInteractions();
+  const payload = { data: columnData, outcome, group_var, l1_preds, l2_covs, rand_slopes, cross_interactions };
 
   try {
     const res  = await fetch(`${API_BASE}/api/analyze`, {
@@ -549,11 +685,13 @@ function renderResults(d) {
   renderNullTab(d.null_model, d.data_info);
   renderRITab(d.ri_model);
   renderRSTab(d.rs_model, d.rs_model_error);
+  renderCLTab(d.cl_model, d.cl_model_error);
   renderCompTab(d.model_comparison);
 
   // 탭 버튼 활성화
   document.getElementById('tab-ri-btn').style.opacity = d.ri_model ? '1' : '.4';
   document.getElementById('tab-rs-btn').style.opacity = d.rs_model ? '1' : '.4';
+  document.getElementById('tab-cl-btn').style.opacity = d.cl_model ? '1' : '.4';
 
   // 첫 탭으로 초기화
   switchTab('tab-info', document.querySelector('.tab-btn'));
@@ -835,6 +973,573 @@ function switchTab(paneId, btn) {
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(paneId).classList.add('active');
   if (btn) btn.classList.add('active');
+}
+
+function switchDescTab(paneId, btn) {
+  document.querySelectorAll('.desc-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.desc-tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(paneId).classList.add('active');
+  if (btn) btn.classList.add('active');
+}
+
+// ════════════════════════════════════════
+//  기초 통계 분석 (클라이언트 사이드)
+// ════════════════════════════════════════
+let distChart = null;
+let grpChart  = null;
+
+function getNumericColumns() {
+  return allColumns.filter(col => {
+    const vals = columnData[col];
+    let numCount = 0, total = 0;
+    for (const v of vals) {
+      if (v === '' || v === null || v === undefined) continue;
+      total++;
+      if (typeof v === 'number') numCount++;
+    }
+    return total > 0 && numCount / total > 0.5;
+  });
+}
+
+function arrMean(arr) {
+  if (arr.length === 0) return NaN;
+  return arr.reduce((s, v) => s + v, 0) / arr.length;
+}
+
+function arrStd(arr) {
+  if (arr.length < 2) return NaN;
+  const m = arrMean(arr);
+  return Math.sqrt(arr.reduce((s, v) => s + (v - m) ** 2, 0) / (arr.length - 1));
+}
+
+function arrSkew(arr) {
+  const n = arr.length;
+  if (n < 3) return NaN;
+  const m = arrMean(arr);
+  const s = arrStd(arr);
+  if (s === 0) return NaN;
+  const sum3 = arr.reduce((acc, v) => acc + ((v - m) / s) ** 3, 0);
+  return (n / ((n - 1) * (n - 2))) * sum3;
+}
+
+function arrKurt(arr) {
+  const n = arr.length;
+  if (n < 4) return NaN;
+  const m = arrMean(arr);
+  const s = arrStd(arr);
+  if (s === 0) return NaN;
+  const sum4 = arr.reduce((acc, v) => acc + ((v - m) / s) ** 4, 0);
+  return (n * (n + 1)) / ((n - 1) * (n - 2) * (n - 3)) * sum4
+         - (3 * (n - 1) ** 2) / ((n - 2) * (n - 3));
+}
+
+function pearsonCorr(arr1, arr2) {
+  const pairs = [];
+  for (let i = 0; i < arr1.length; i++) {
+    if (typeof arr1[i] === 'number' && typeof arr2[i] === 'number' &&
+        !isNaN(arr1[i]) && !isNaN(arr2[i])) {
+      pairs.push([arr1[i], arr2[i]]);
+    }
+  }
+  const n = pairs.length;
+  if (n < 3) return NaN;
+  const m1 = pairs.reduce((s, p) => s + p[0], 0) / n;
+  const m2 = pairs.reduce((s, p) => s + p[1], 0) / n;
+  let num = 0, d1 = 0, d2 = 0;
+  for (const [a, b] of pairs) {
+    num += (a - m1) * (b - m2);
+    d1  += (a - m1) ** 2;
+    d2  += (b - m2) ** 2;
+  }
+  const denom = Math.sqrt(d1 * d2);
+  return denom === 0 ? NaN : num / denom;
+}
+
+function renderDescriptiveStats() {
+  const numCols = getNumericColumns();
+
+  // 분포 탭 - 변수 셀렉터
+  const distSel = document.getElementById('sel-dist-var');
+  distSel.innerHTML = '<option value="">-- 선택 --</option>';
+  numCols.forEach(col => {
+    distSel.innerHTML += `<option value="${col}">${col}</option>`;
+  });
+
+  // 집단별 비교 탭 - 셀렉터
+  const grpSel = document.getElementById('sel-grp-var');
+  const cmpSel = document.getElementById('sel-cmp-var');
+  grpSel.innerHTML = '<option value="">-- 선택 --</option>';
+  cmpSel.innerHTML = '<option value="">-- 선택 --</option>';
+  allColumns.forEach(col => {
+    grpSel.innerHTML += `<option value="${col}">${col}</option>`;
+  });
+  numCols.forEach(col => {
+    cmpSel.innerHTML += `<option value="${col}">${col}</option>`;
+  });
+
+  // 시각화 탭 - 셀렉터
+  ['sel-viz-x','sel-viz-y','sel-viz-bval'].forEach(id => {
+    const s = document.getElementById(id);
+    s.innerHTML = '<option value="">-- 선택 --</option>';
+    numCols.forEach(col => { s.innerHTML += `<option value="${col}">${col}</option>`; });
+  });
+  ['sel-viz-color','sel-viz-bgrp'].forEach(id => {
+    const s = document.getElementById(id);
+    s.innerHTML = id === 'sel-viz-color' ? '<option value="">없음</option>' : '<option value="">-- 선택 --</option>';
+    allColumns.forEach(col => { s.innerHTML += `<option value="${col}">${col}</option>`; });
+  });
+
+  renderSummaryTable(numCols);
+  renderCorrelationMatrix(numCols);
+}
+
+function renderSummaryTable(numCols) {
+  if (numCols.length === 0) {
+    document.getElementById('desc-summary-tbl').innerHTML =
+      '<p style="color:var(--muted)">수치형 변수가 없습니다.</p>';
+    return;
+  }
+  let html = `<table>
+    <thead><tr>
+      <th>변수</th><th>N</th><th>결측</th><th>평균</th><th>표준편차</th>
+      <th>최솟값</th><th>최댓값</th><th>왜도</th><th>첨도</th>
+    </tr></thead><tbody>`;
+
+  numCols.forEach(col => {
+    const all  = columnData[col];
+    const nums = all.filter(v => typeof v === 'number' && !isNaN(v));
+    const n    = nums.length;
+    const miss = all.length - n;
+    const mean = arrMean(nums);
+    const sd   = arrStd(nums);
+    const min  = n > 0 ? Math.min(...nums) : NaN;
+    const max  = n > 0 ? Math.max(...nums) : NaN;
+    const skew = arrSkew(nums);
+    const kurt = arrKurt(nums);
+
+    html += `<tr>
+      <td><strong>${col}</strong></td>
+      <td>${n}</td><td>${miss}</td>
+      <td>${isNaN(mean) ? '-' : mean.toFixed(3)}</td>
+      <td>${isNaN(sd)   ? '-' : sd.toFixed(3)}</td>
+      <td>${isNaN(min)  ? '-' : min.toFixed(3)}</td>
+      <td>${isNaN(max)  ? '-' : max.toFixed(3)}</td>
+      <td>${isNaN(skew) ? '-' : skew.toFixed(3)}</td>
+      <td>${isNaN(kurt) ? '-' : kurt.toFixed(3)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('desc-summary-tbl').innerHTML = html;
+}
+
+function renderDistribution() {
+  const col = document.getElementById('sel-dist-var').value;
+  if (!col) return;
+
+  const nums = columnData[col].filter(v => typeof v === 'number' && !isNaN(v));
+  if (nums.length === 0) return;
+
+  const min = Math.min(...nums);
+  const max = Math.max(...nums);
+  const nBins = Math.max(5, Math.ceil(Math.log2(nums.length) + 1));
+  const binWidth = (max - min) / nBins || 1;
+
+  const bins = Array(nBins).fill(0);
+  const labels = [];
+  for (let i = 0; i < nBins; i++) {
+    const lo = min + i * binWidth;
+    const hi = lo + binWidth;
+    labels.push(`${lo.toFixed(1)}–${hi.toFixed(1)}`);
+  }
+  nums.forEach(v => {
+    let idx = Math.floor((v - min) / binWidth);
+    if (idx >= nBins) idx = nBins - 1;
+    if (idx < 0) idx = 0;
+    bins[idx]++;
+  });
+
+  if (distChart) { distChart.destroy(); distChart = null; }
+  distChart = new Chart(document.getElementById('dist-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: col,
+        data: bins,
+        backgroundColor: 'rgba(37,99,235,.6)',
+        borderColor: 'rgba(37,99,235,1)',
+        borderWidth: 1,
+        borderRadius: 2
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: `${col} 분포 (N=${nums.length})`, font: { size: 13 } }
+      },
+      scales: {
+        x: { title: { display: true, text: col } },
+        y: { title: { display: true, text: '빈도' }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+function renderCorrelationMatrix(numCols) {
+  if (numCols.length < 2) {
+    document.getElementById('corr-matrix-tbl').innerHTML =
+      '<p style="color:var(--muted)">상관행렬을 계산하려면 수치형 변수가 2개 이상 필요합니다.</p>';
+    return;
+  }
+
+  let html = '<table class="corr-table"><thead><tr><th></th>';
+  numCols.forEach(c => { html += `<th>${c}</th>`; });
+  html += '</tr></thead><tbody>';
+
+  numCols.forEach((r, ri) => {
+    html += `<tr><th style="text-align:left">${r}</th>`;
+    numCols.forEach((c, ci) => {
+      if (ri === ci) {
+        html += '<td style="background:#f1f5f9;font-weight:700">1.000</td>';
+      } else {
+        const corr = pearsonCorr(columnData[r], columnData[c]);
+        const val  = isNaN(corr) ? '-' : corr.toFixed(3);
+        const absC = Math.abs(corr);
+        let bg = '#fff';
+        if (!isNaN(corr)) {
+          bg = corr > 0
+            ? `rgba(220,38,38,${(absC * 0.35).toFixed(2)})`
+            : `rgba(37,99,235,${(absC * 0.35).toFixed(2)})`;
+        }
+        const fw = absC > 0.3 ? 'font-weight:600' : '';
+        html += `<td style="background:${bg};${fw}">${val}</td>`;
+      }
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  html += '<p style="font-size:11px;color:var(--muted);margin-top:8px">' +
+    'Pearson 상관계수. <span style="color:rgba(220,38,38,.8)">빨강</span> = 양의 상관, ' +
+    '<span style="color:rgba(37,99,235,.8)">파랑</span> = 음의 상관</p>';
+  document.getElementById('corr-matrix-tbl').innerHTML = html;
+}
+
+function renderGroupComparison() {
+  const grpVar = document.getElementById('sel-grp-var').value;
+  const cmpVar = document.getElementById('sel-cmp-var').value;
+  if (!grpVar || !cmpVar) return;
+
+  const groups = {};
+  parsedData.forEach(row => {
+    const g = row[grpVar];
+    const v = parseFloat(row[cmpVar]);
+    if (g === '' || g === null || g === undefined || isNaN(v)) return;
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(v);
+  });
+
+  const labels = Object.keys(groups).sort();
+  if (labels.length === 0 || labels.length > 50) {
+    document.getElementById('grp-tbl').innerHTML =
+      '<p style="color:var(--muted)">집단이 너무 많거나 데이터가 없습니다.</p>';
+    return;
+  }
+
+  const means = labels.map(g => arrMean(groups[g]));
+
+  if (grpChart) { grpChart.destroy(); grpChart = null; }
+  grpChart = new Chart(document.getElementById('grp-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: `${cmpVar} 평균`,
+        data: means,
+        backgroundColor: 'rgba(37,99,235,.6)',
+        borderRadius: 4
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: true, text: `${grpVar}별 ${cmpVar} 평균 비교`, font: { size: 13 } }
+      },
+      scales: {
+        x: { title: { display: true, text: grpVar } },
+        y: { title: { display: true, text: cmpVar }, beginAtZero: false }
+      }
+    }
+  });
+
+  // 통계 테이블
+  let html = `<table>
+    <thead><tr><th>${grpVar}</th><th>N</th><th>평균</th><th>표준편차</th><th>최솟값</th><th>최댓값</th></tr></thead><tbody>`;
+  labels.forEach(g => {
+    const vals = groups[g];
+    html += `<tr>
+      <td><strong>${g}</strong></td>
+      <td>${vals.length}</td>
+      <td>${arrMean(vals).toFixed(3)}</td>
+      <td>${arrStd(vals).toFixed(3)}</td>
+      <td>${Math.min(...vals).toFixed(3)}</td>
+      <td>${Math.max(...vals).toFixed(3)}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  document.getElementById('grp-tbl').innerHTML = html;
+}
+
+// ════════════════════════════════════════
+//  교차수준 상호작용 UI
+// ════════════════════════════════════════
+function updateCrossInteractions() {
+  const l1 = getChecked('l1');
+  const l2 = getChecked('l2');
+  const el = document.getElementById('chk-cross');
+
+  if (l1.length === 0 || l2.length === 0) {
+    el.innerHTML = '<span class="empty-hint">L1·L2 독립변수를 각각 1개 이상 선택하면 상호작용 항이 표시됩니다.</span>';
+    return;
+  }
+
+  const prevSel = getCrossInteractions();
+  const prevSet = new Set(prevSel.map(x => `${x.l1}:${x.l2}`));
+
+  let html = '';
+  l1.forEach(v1 => {
+    l2.forEach(v2 => {
+      const key = `${v1}:${v2}`;
+      const checked = prevSet.has(key) ? ' checked' : '';
+      html += `<div class="check-item">
+        <input type="checkbox" id="cross_${v1}__${v2}" data-l1="${v1}" data-l2="${v2}"${checked}>
+        <label for="cross_${v1}__${v2}">${v1} × ${v2}</label>
+      </div>`;
+    });
+  });
+  el.innerHTML = html;
+}
+
+function getCrossInteractions() {
+  return [...document.querySelectorAll('#chk-cross input[type=checkbox]:checked')].map(el => ({
+    l1: el.dataset.l1,
+    l2: el.dataset.l2
+  }));
+}
+
+// ════════════════════════════════════════
+//  M3 교차수준 상호작용 결과 렌더링
+// ════════════════════════════════════════
+function renderCLTab(m, err) {
+  const el = document.getElementById('cl-content');
+  if (err) {
+    el.innerHTML = `<div class="alert alert-warning">${err}</div>`;
+    return;
+  }
+  if (!m) {
+    el.innerHTML = '<div class="alert alert-info">교차수준 상호작용을 선택해야 이 모형이 적합됩니다.</div>';
+    return;
+  }
+
+  let rawTerms = m.interaction_terms || [];
+  if (typeof rawTerms === 'string') rawTerms = [rawTerms];
+  if (!Array.isArray(rawTerms)) rawTerms = [];
+  const intTerms = rawTerms.map(t => typeof t === 'string' ? t : '');
+
+  let html = `
+    <div class="stat-grid">
+      ${statBox(m.icc ?? 'N/A', 'ICC', iccHint(m.icc))}
+      ${m.r2 ? statBox(m.r2.marginal, '한계적 R² (Marginal)') : ''}
+      ${m.r2 ? statBox(m.r2.conditional, '조건적 R² (Conditional)') : ''}
+      ${statBox(m.fit.AIC, 'AIC')}
+      ${statBox(m.fit.BIC, 'BIC')}
+      ${statBox(m.fit.npar, '파라미터 수')}
+    </div>
+    <div class="section-title">고정효과 (Fixed Effects) — 상호작용 항 강조</div>
+    <div class="tbl-wrap">${fixedEffectTableCL(m.fixed_effects, intTerms)}</div>
+    <div class="section-title">무선효과 (Random Effects)</div>
+    <div class="tbl-wrap">${randomEffectTable(m.random_effects)}</div>`;
+
+  if (m.lrt_vs_prev) {
+    html += lrtBox('이전 모형 대비', m.lrt_vs_prev);
+  }
+  html += `<div class="section-title">모형 공식</div><code style="font-size:12px;color:var(--muted)">${m.formula}</code>`;
+  el.innerHTML = html;
+}
+
+function fixedEffectTableCL(fes, intTerms) {
+  if (!fes || fes.length === 0) return '<p style="color:var(--muted)">고정효과 없음</p>';
+  let html = `<table>
+    <thead><tr>
+      <th>변수명</th><th>추정값 (B)</th><th>표준오차 (SE)</th>
+      <th>t값</th><th>p값</th><th>95% CI 하한</th><th>95% CI 상한</th><th>유의성</th>
+    </tr></thead><tbody>`;
+  fes.forEach(fe => {
+    const isInt = intTerms.includes(fe.term);
+    const style = isInt ? ' style="background:#fef3c7"' : '';
+    const termHtml = isInt ? `<span class="interaction-term">${fe.term}</span>` : fe.term;
+    html += `<tr${style}>
+      <td><strong>${termHtml}</strong></td>
+      <td>${fmt(fe.estimate)}</td>
+      <td>${fmt(fe.se)}</td>
+      <td>${fmt(fe.t)}</td>
+      <td>${fe.p != null ? fmt(fe.p) : '-'}</td>
+      <td>${fe.ci_lower != null ? fmt(fe.ci_lower) : '-'}</td>
+      <td>${fe.ci_upper != null ? fmt(fe.ci_upper) : '-'}</td>
+      <td>${fe.p != null ? pSig(fe.p) : '-'}</td>
+    </tr>`;
+  });
+  html += `</tbody></table>
+    <p style="font-size:11px;color:var(--muted);margin-top:6px">
+      <span class="interaction-term">강조</span> = 교차수준 상호작용 항 &nbsp;|&nbsp;
+      유의수준: *** p&lt;.001 &nbsp; ** p&lt;.01 &nbsp; * p&lt;.05 &nbsp; † p&lt;.1
+    </p>`;
+  return html;
+}
+
+// ════════════════════════════════════════
+//  시각화 탭 (산점도 / 박스플롯)
+// ════════════════════════════════════════
+let vizChart = null;
+const VIZ_COLORS = [
+  'rgba(37,99,235,.65)','rgba(220,38,38,.65)','rgba(5,150,105,.65)',
+  'rgba(217,119,6,.65)','rgba(124,58,237,.65)','rgba(236,72,153,.65)',
+  'rgba(20,184,166,.65)','rgba(245,158,11,.65)','rgba(99,102,241,.65)',
+  'rgba(16,185,129,.65)'
+];
+
+function onVizTypeChange() {
+  const t = document.getElementById('sel-viz-type').value;
+  document.getElementById('viz-scatter-opts').style.display = t === 'scatter' ? '' : 'none';
+  document.getElementById('viz-box-opts').style.display     = t === 'box'     ? '' : 'none';
+  if (vizChart) { vizChart.destroy(); vizChart = null; }
+}
+
+function renderViz() {
+  const t = document.getElementById('sel-viz-type').value;
+  if (t === 'scatter') renderScatter();
+  else renderBoxPlot();
+}
+
+function renderScatter() {
+  const xCol = document.getElementById('sel-viz-x').value;
+  const yCol = document.getElementById('sel-viz-y').value;
+  if (!xCol || !yCol) return;
+
+  const colorCol = document.getElementById('sel-viz-color').value;
+
+  if (vizChart) { vizChart.destroy(); vizChart = null; }
+
+  if (!colorCol) {
+    // 단일 산점도
+    const pts = [];
+    for (let i = 0; i < parsedData.length; i++) {
+      const x = parseFloat(parsedData[i][xCol]);
+      const y = parseFloat(parsedData[i][yCol]);
+      if (!isNaN(x) && !isNaN(y)) pts.push({ x, y });
+    }
+    vizChart = new Chart(document.getElementById('viz-chart'), {
+      type: 'scatter',
+      data: { datasets: [{ label: `${yCol} vs ${xCol}`, data: pts, backgroundColor: VIZ_COLORS[0], pointRadius: 3 }] },
+      options: scatterOpts(xCol, yCol, `${yCol} vs ${xCol} (N=${pts.length})`)
+    });
+  } else {
+    // 집단별 색상 구분
+    const groups = {};
+    for (let i = 0; i < parsedData.length; i++) {
+      const x = parseFloat(parsedData[i][xCol]);
+      const y = parseFloat(parsedData[i][yCol]);
+      const g = parsedData[i][colorCol] ?? '';
+      if (isNaN(x) || isNaN(y)) continue;
+      if (!groups[g]) groups[g] = [];
+      groups[g].push({ x, y });
+    }
+    const keys = Object.keys(groups).sort();
+    if (keys.length > 20) {
+      alert('집단이 20개를 초과하여 색상 구분이 어렵습니다.');
+      return;
+    }
+    const datasets = keys.map((g, i) => ({
+      label: g || '(빈값)',
+      data: groups[g],
+      backgroundColor: VIZ_COLORS[i % VIZ_COLORS.length],
+      pointRadius: 3
+    }));
+    vizChart = new Chart(document.getElementById('viz-chart'), {
+      type: 'scatter',
+      data: { datasets },
+      options: scatterOpts(xCol, yCol, `${yCol} vs ${xCol} — ${colorCol}별`)
+    });
+  }
+}
+
+function scatterOpts(xLbl, yLbl, title) {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { title: { display: true, text: title, font: { size: 13 } }, legend: { position: 'top', labels: { boxWidth: 10, font: { size: 11 } } } },
+    scales: { x: { title: { display: true, text: xLbl } }, y: { title: { display: true, text: yLbl } } }
+  };
+}
+
+function renderBoxPlot() {
+  const gCol = document.getElementById('sel-viz-bgrp').value;
+  const vCol = document.getElementById('sel-viz-bval').value;
+  if (!gCol || !vCol) return;
+
+  const groups = {};
+  parsedData.forEach(row => {
+    const g = row[gCol];
+    const v = parseFloat(row[vCol]);
+    if (g === '' || g == null || isNaN(v)) return;
+    if (!groups[g]) groups[g] = [];
+    groups[g].push(v);
+  });
+
+  const labels = Object.keys(groups).sort();
+  if (labels.length === 0 || labels.length > 50) return;
+
+  // 각 집단의 min, Q1, median, Q3, max 계산
+  const boxData = labels.map(g => {
+    const arr = groups[g].slice().sort((a, b) => a - b);
+    const q = p => { const i = (arr.length - 1) * p; const lo = Math.floor(i); const hi = Math.ceil(i); return arr[lo] + (arr[hi] - arr[lo]) * (i - lo); };
+    return { min: arr[0], q1: q(0.25), med: q(0.5), q3: q(0.75), max: arr[arr.length - 1], mean: arrMean(arr), n: arr.length };
+  });
+
+  if (vizChart) { vizChart.destroy(); vizChart = null; }
+
+  // Chart.js에는 네이티브 박스플롯이 없으므로 floating bar + error bar로 근사
+  vizChart = new Chart(document.getElementById('viz-chart'), {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'IQR (Q1–Q3)', data: boxData.map(b => [b.q1, b.q3]), backgroundColor: 'rgba(37,99,235,.35)', borderColor: 'rgba(37,99,235,.8)', borderWidth: 1, borderRadius: 2, borderSkipped: false },
+        { label: '중앙값', data: boxData.map(b => b.med), type: 'line', pointStyle: 'dash', pointRadius: 6, borderWidth: 0, pointBackgroundColor: '#dc2626', pointBorderColor: '#dc2626', showLine: false },
+        { label: '평균', data: boxData.map(b => b.mean), type: 'line', pointStyle: 'circle', pointRadius: 4, borderWidth: 0, pointBackgroundColor: '#059669', pointBorderColor: '#059669', showLine: false }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        title: { display: true, text: `${gCol}별 ${vCol} 분포 비교`, font: { size: 13 } },
+        tooltip: {
+          callbacks: {
+            afterBody(ctx) {
+              const i = ctx[0].dataIndex;
+              const b = boxData[i];
+              return `N=${b.n}  Min=${b.min.toFixed(2)}  Q1=${b.q1.toFixed(2)}\nMed=${b.med.toFixed(2)}  Q3=${b.q3.toFixed(2)}  Max=${b.max.toFixed(2)}`;
+            }
+          }
+        },
+        legend: { labels: { boxWidth: 10, font: { size: 11 } } }
+      },
+      scales: {
+        x: { title: { display: true, text: gCol } },
+        y: { title: { display: true, text: vCol } }
+      }
+    }
+  });
 }
 </script>
 </body>

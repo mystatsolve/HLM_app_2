@@ -151,6 +151,17 @@ function(req) {
     l1_preds    <- if (!is.null(body$l1_preds))    as.character(unlist(body$l1_preds))    else character(0)
     l2_covs     <- if (!is.null(body$l2_covs))     as.character(unlist(body$l2_covs))     else character(0)
     rand_slopes <- if (!is.null(body$rand_slopes)) as.character(unlist(body$rand_slopes)) else character(0)
+    cross_interactions <- if (!is.null(body$cross_interactions)) body$cross_interactions else list()
+    # jsonlite가 [{l1:"a",l2:"b"},...] 를 data.frame으로 변환하므로 list-of-list로 정규화
+    if (is.data.frame(cross_interactions)) {
+      cross_interactions <- lapply(seq_len(nrow(cross_interactions)), function(i) {
+        list(l1 = as.character(cross_interactions$l1[i]),
+             l2 = as.character(cross_interactions$l2[i]))
+      })
+    } else if (length(cross_interactions) > 0 && !is.null(names(cross_interactions))) {
+      # 단일 상호작용이 flat named list로 온 경우
+      cross_interactions <- list(cross_interactions)
+    }
 
     # ── 3. 변수 존재 확인 ─────────────────────────────────────────
     needed  <- unique(c(outcome, group_var, l1_preds, l2_covs))
@@ -253,6 +264,61 @@ function(req) {
           )
         }
       }
+
+      # ── Model 3: 교차수준 상호작용 모형 (Cross-Level Interaction) ──
+      if (length(cross_interactions) > 0) {
+        int_terms   <- character(0)
+        int_l1_vars <- character(0)
+        for (ci in cross_interactions) {
+          l1v <- as.character(ci$l1)
+          l2v <- as.character(ci$l2)
+          if (l1v %in% l1_preds && l2v %in% l2_covs) {
+            int_terms   <- c(int_terms, paste0(l1v, ":", l2v))
+            int_l1_vars <- c(int_l1_vars, l1v)
+          }
+        }
+
+        if (length(int_terms) > 0) {
+          int_l1_vars <- unique(int_l1_vars)
+          all_rs_m3   <- unique(c(valid_rs, int_l1_vars))
+          fixed_part  <- paste(c(all_fixed, int_terms), collapse = " + ")
+          slope_part3 <- paste(c("1", all_rs_m3), collapse = " + ")
+          f3_str <- paste0(outcome, " ~ ", fixed_part,
+                           " + (", slope_part3, "|", group_var, ")")
+
+          m3 <- tryCatch(
+            suppressWarnings(
+              lmer(as.formula(f3_str), data = df, REML = FALSE,
+                   control = lmerControl(optimizer = "bobyqa",
+                                         optCtrl   = list(maxfun = 2e5)))
+            ),
+            error = function(e) e$message
+          )
+
+          if (is.character(m3)) {
+            result$cl_model_error <- paste0("수렴 실패: ", m3)
+          } else {
+            prev_m <- m1
+            if (length(valid_rs) > 0 && exists("m2") && !is.character(m2)) prev_m <- m2
+            lrt_m3 <- tryCatch(suppressWarnings(anova(prev_m, m3)), error = function(e) NULL)
+
+            result$cl_model <- list(
+              formula           = f3_str,
+              fixed_effects     = extract_fixed(m3),
+              random_effects    = extract_random(m3),
+              icc               = calc_icc(m3),
+              r2                = calc_r2(m3),
+              fit               = extract_fit(m3),
+              interaction_terms = as.list(int_terms),
+              lrt_vs_prev       = if (!is.null(lrt_m3)) list(
+                chi2 = round(lrt_m3[["Chisq"]][2], 4),
+                df   = lrt_m3[["Df"]][2],
+                p    = round(lrt_m3[["Pr(>Chisq)"]][2], 4)
+              ) else NULL
+            )
+          }
+        }
+      }
     }
 
     # ── 모형 비교표 ───────────────────────────────────────────────
@@ -290,6 +356,24 @@ function(req) {
         logLik   = result$rs_model$fit$logLik,
         deviance = result$rs_model$fit$deviance,
         delta_deviance = if (!is.null(lrt)) round(result$ri_model$fit$deviance - result$rs_model$fit$deviance, 2) else NA,
+        chi2     = if (!is.null(lrt)) lrt$chi2 else NA,
+        df_chi   = if (!is.null(lrt)) lrt$df   else NA,
+        p_chi    = if (!is.null(lrt)) lrt$p    else NA
+      )
+    }
+
+    if (!is.null(result$cl_model)) {
+      lrt <- result$cl_model$lrt_vs_prev
+      prev_dev <- if (!is.null(result$rs_model)) result$rs_model$fit$deviance
+                  else result$ri_model$fit$deviance
+      comp[[length(comp) + 1]] <- list(
+        name     = "Model 3: 교차수준 상호작용",
+        npar     = result$cl_model$fit$npar,
+        AIC      = result$cl_model$fit$AIC,
+        BIC      = result$cl_model$fit$BIC,
+        logLik   = result$cl_model$fit$logLik,
+        deviance = result$cl_model$fit$deviance,
+        delta_deviance = if (!is.null(lrt)) round(prev_dev - result$cl_model$fit$deviance, 2) else NA,
         chi2     = if (!is.null(lrt)) lrt$chi2 else NA,
         df_chi   = if (!is.null(lrt)) lrt$df   else NA,
         p_chi    = if (!is.null(lrt)) lrt$p    else NA
