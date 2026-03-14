@@ -28,9 +28,9 @@ script_path <- tryCatch(
 setwd(script_path)
 
 # Plumber API 서버 시작
-# host = "127.0.0.1": 로컬에서만 접근 가능 (외부 접근 필요 시 "0.0.0.0"으로 변경)
+# host = "0.0.0.0": 모든 네트워크 인터페이스에서 접근 가능 (외부 접속 허용)
 # port = 8001: 포트 번호 (변경 시 index.html의 API_BASE도 수정 필요)
 # docs = FALSE: Swagger UI 비활성화 (프론트엔드가 별도로 있으므로 불필요)
 library(plumber)
 pr <- plumb("api.R")
-pr_run(pr, host = "127.0.0.1", port = 8001, docs = FALSE)
+pr_run(pr, host = "0.0.0.0", port = 8001, docs = FALSE)
