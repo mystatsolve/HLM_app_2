@@ -1,5 +1,9 @@
 # HLM_app - 다층모형분석 (Multilevel Modeling) 웹 애플리케이션
 
+> **접속 주소**: [https://bernard-paintball-deaf-downloading.trycloudflare.com](https://bernard-paintball-deaf-downloading.trycloudflare.com)
+>
+> ※ Cloudflare Tunnel 기반 — 서버 재시작 시 URL이 변경될 수 있습니다.
+
 R `lme4`/`lmerTest` 패키지 기반 다층모형(HLM/MLM) 분석을 브라우저에서 수행할 수 있는 웹 애플리케이션입니다. CSV 파일을 업로드하면 기저모형부터 교차수준 상호작용 모형까지 자동으로 적합하고, 결과를 시각적으로 확인하며, AI 보고서까지 생성할 수 있습니다.
 
 ---
