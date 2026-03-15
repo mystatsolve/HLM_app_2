@@ -566,6 +566,17 @@ td.formula-cell { font-family: monospace; font-size: 12px; color: var(--muted); 
     </div>
 
     <div style="margin-bottom:16px">
+      <label class="field-label">추정 방법 (Estimation Method)</label>
+      <select id="est-method" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px">
+        <option value="lmer" selected>lmer (lme4 기본) — 빠르고 표준적</option>
+        <option value="em_lmer">EM + lmer (Stata 방식) — 수렴 안정성 높음, 느림</option>
+      </select>
+      <p style="font-size:12px;color:var(--muted);margin-top:6px">
+        ※ lmer: BOBYQA 옵티마이저로 직접 적합. EM+lmer: EM 알고리즘으로 초기값을 추정한 후 lmer로 최종 수렴 (Stata mixed 방식).
+      </p>
+    </div>
+
+    <div style="margin-bottom:16px">
       <label class="field-label">교차수준 상호작용 (Cross-Level Interaction, 선택)</label>
       <div class="check-group" id="chk-cross" style="max-height:140px">
         <span class="empty-hint">L1·L2 독립변수를 각각 1개 이상 선택하면 상호작용 항이 표시됩니다.</span>
@@ -954,7 +965,8 @@ async function runAnalysis() {
   const l1_centering = document.getElementById('sel-l1-centering').value;
   const l2_centering = document.getElementById('sel-l2-centering').value;
   const cov_struct = document.getElementById('cov-struct').value;
-  const payload = { data: columnData, outcome, group_var, l1_preds, l2_covs, rand_slopes, cross_interactions, l1_centering, l2_centering, cov_struct };
+  const estimation_method = document.getElementById('est-method').value;
+  const payload = { data: columnData, outcome, group_var, l1_preds, l2_covs, rand_slopes, cross_interactions, l1_centering, l2_centering, cov_struct, estimation_method };
 
   try {
     const res  = await fetch(`${API_BASE}/api/analyze`, {

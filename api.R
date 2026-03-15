@@ -92,71 +92,49 @@ normalize_cross_interactions <- function(x) {
 # ── em_lmer(): EM 알고리즘 초기값 + lmer 적합 ─────────────────────────────────
 #
 # Stata의 mixed 명령어와 동일한 2단계 추정 전략:
-#   1단계 (EM algorithm, n_em회 반복):
-#     - 분산 성분(G, sigma²)의 안정적인 초기값을 추정합니다.
-#     - EM은 수렴이 느리지만 초기값에 강건하여, 어디서 시작해도 합리적인
-#       분산 성분 추정치로 수렴합니다.
-#   2단계 (Newton-Raphson / BOBYQA):
-#     - EM에서 얻은 초기값을 lmer()에 전달하여 최종 수렴합니다.
-#     - Newton-Raphson은 수렴 근처에서 빠르게 수렴(2차 수렴)합니다.
+#   1단계: EM algorithm으로 분산 성분의 안정적인 초기값을 추정
+#   2단계: EM 초기값을 lmer()에 전달하여 BOBYQA로 최종 수렴
 #
-# 왜 EM 초기값이 필요한가?
-#   - lmer()의 기본 초기값이 실제 값과 멀면 수렴 실패 가능
-#   - 무선효과가 여러 개인 복잡한 모형에서 특히 효과적
-#   - Stata의 mixed 명령어가 이 방식을 사용하며, 수렴 안정성이 높음
+# 장점: 복잡한 모형에서 수렴 안정성이 높음
+# 단점: EM 반복으로 인해 계산 시간이 더 소요됨
 #
 # 인자:
 #   formula  : lmer 공식 (예: Y ~ X + (1 + X | group))
 #   data     : 데이터프레임
-#   REML     : TRUE = REML 추정(보고용), FALSE = ML 추정(모형비교용)
-#   n_em     : EM 반복 횟수 (기본 25회, Stata 기본값과 동일)
+#   REML     : TRUE = REML 추정, FALSE = ML 추정
+#   n_em     : EM 반복 횟수 (기본 25회)
 #   control  : lmerControl 객체
-#
-# 반환: lmerMod 객체 (lmer() 결과)
 em_lmer <- function(formula, data, REML = TRUE, n_em = 25,
                     control = lmerControl(), ...) {
-  # lFormula()로 모형 행렬(X, Z)을 미리 계산합니다.
-  # 실패하면 EM 없이 바로 lmer()을 호출합니다.
+  # lFormula()로 모형 행렬 계산, 실패 시 lmer() 직접 호출
   lmod <- tryCatch(lFormula(formula, data = data, REML = REML),
                    error = function(e) NULL)
   if (is.null(lmod)) {
     return(lmer(formula, data = data, REML = REML, control = control, ...))
   }
 
-  # ── || (독립 공분산 구조) 감지 ──
-  # || 사용 시 lme4가 무선효과를 여러 항으로 분리하므로 (예: (1|g) + (0+X|g))
-  # 단일 G 행렬을 가정하는 EM 알고리즘이 적용 불가 → EM 건너뛰고 lmer 직접 호출
-  # 주의: n_re_terms > 1 로 판단하면 (1|g1) + (1|g2) 같은 다중 집단 모형도 건너뛰게 됨
-  #       formula 문자열에서 || 존재 여부로 직접 확인
+  # || (독립 공분산) 사용 시 EM 건너뛰기 (단일 G 행렬 가정 위배)
   formula_str <- paste(deparse(formula), collapse = "")
   if (grepl("\\|\\|", formula_str)) {
     return(lmer(formula, data = data, REML = REML, control = control, ...))
   }
 
-  # ── 행렬 구성 ──
-  # y: 종속변수 벡터 (N×1)
-  # X: 고정효과 설계행렬 (N×p), 절편 + 독립변수
-  # Z: 무선효과 설계행렬 (N×(J*q)), 집단별 무선효과 할당
+  # 행렬 구성
   y <- as.numeric(lmod$fr[, 1])
   X <- as.matrix(lmod$X)
   Z <- as.matrix(t(lmod$reTrms$Zt))
+  grp_idx <- as.integer(lmod$reTrms$flist[[1]])
+  J <- nlevels(lmod$reTrms$flist[[1]])
+  N <- length(y)
+  p <- ncol(X)
+  q <- length(lmod$reTrms$cnms[[1]])
 
-  grp_idx <- as.integer(lmod$reTrms$flist[[1]])  # 각 관측치의 집단 번호
-  J <- nlevels(lmod$reTrms$flist[[1]])            # 총 집단 수
-  N <- length(y)                                   # 총 관측치 수
-  p <- ncol(X)                                     # 고정효과 수 (절편 포함)
-  q <- length(lmod$reTrms$cnms[[1]])               # 집단당 무선효과 수
-
-  # ── EM 초기값 설정 ──
-  # sigma²: 잔차 분산 초기값 (종속변수 분산의 50%)
-  # G: 무선효과 공분산 행렬 초기값 (q×q 대각행렬)
+  # EM 초기값
   sigma2 <- var(y) * 0.5
   G <- diag(q) * var(y) * 0.25
 
   for (iter in seq_len(n_em)) {
-    # ── GLS(일반화 최소제곱)로 고정효과 beta 추정 ──
-    # V_j = Z_j * G * Z_j' + sigma² * I  (j번째 집단의 분산-공분산 행렬)
-    # beta = (Σ X_j' V_j^{-1} X_j)^{-1} (Σ X_j' V_j^{-1} y_j)
+    # GLS로 beta 추정
     XtVX <- matrix(0, p, p)
     XtVY <- numeric(p)
     for (j in seq_len(J)) {
@@ -172,9 +150,7 @@ em_lmer <- function(formula, data, REML = TRUE, n_em = 25,
     }
     beta <- solve(XtVX, XtVY)
 
-    # ── E-step (기대) + M-step (최대화) ──
-    # E-step: 각 집단의 조건부 무선효과 기대값(u_j)과 공분산(C_j) 계산
-    # M-step: u_j와 C_j로부터 G(무선효과 공분산)와 sigma²(잔차 분산) 갱신
+    # E-step + M-step
     ss_G <- matrix(0, q, q)
     ss_s <- 0
     for (j in seq_len(J)) {
@@ -184,32 +160,25 @@ em_lmer <- function(formula, data, REML = TRUE, n_em = 25,
       yj   <- y[idx]
       zcol <- ((j - 1) * q + 1):(j * q)
       Zj   <- Z[idx, zcol, drop = FALSE]
-
-      rj     <- yj - Xj %*% beta                          # 잔차 r_j = y_j - X_j*beta
-      Vj_inv <- solve(Zj %*% tcrossprod(G, Zj) + sigma2 * diag(nj))  # V_j^{-1}
-      GZt    <- tcrossprod(G, Zj)                          # G * Z_j'
-      uj     <- GZt %*% (Vj_inv %*% rj)                   # E[u_j | y] (조건부 기대값)
-      Cj     <- G - GZt %*% (Vj_inv %*% (Zj %*% G))      # Var[u_j | y] (조건부 분산)
-
-      ss_G <- ss_G + tcrossprod(uj) + Cj    # G 갱신용 충분통계량 누적
-      ej   <- rj - Zj %*% uj                # 개인별 잔차
-      ss_s <- ss_s + sum(ej^2) + sum(Zj * (Zj %*% Cj))  # sigma² 갱신용
+      rj     <- yj - Xj %*% beta
+      Vj_inv <- solve(Zj %*% tcrossprod(G, Zj) + sigma2 * diag(nj))
+      GZt    <- tcrossprod(G, Zj)
+      uj     <- GZt %*% (Vj_inv %*% rj)
+      Cj     <- G - GZt %*% (Vj_inv %*% (Zj %*% G))
+      ss_G <- ss_G + tcrossprod(uj) + Cj
+      ej   <- rj - Zj %*% uj
+      ss_s <- ss_s + sum(ej^2) + sum(Zj * (Zj %*% Cj))
     }
 
-    # M-step: 분산 성분 갱신
-    G      <- ss_G / J      # 무선효과 공분산 행렬 갱신
-    sigma2 <- ss_s / N      # 잔차 분산 갱신
-
-    # 양정치 보장 (G가 양정치 행렬이어야 유효한 공분산)
+    G      <- ss_G / J
+    sigma2 <- ss_s / N
     eig <- eigen(G, symmetric = TRUE)
     eig$values <- pmax(eig$values, 1e-10)
     G <- eig$vectors %*% diag(eig$values, nrow = q) %*% t(eig$vectors)
     sigma2 <- max(sigma2, 1e-10)
   }
 
-  # ── EM 결과를 lmer의 theta 파라미터로 변환 ──
-  # lmer는 내부적으로 "relative Cholesky factor"를 사용합니다.
-  # G = L * L' (Cholesky 분해) → theta = L / sqrt(sigma²) 의 하삼각 원소
+  # EM 결과를 lmer theta 파라미터로 변환
   L <- tryCatch(t(chol(G)), error = function(e) {
     eig <- eigen(G, symmetric = TRUE)
     eig$values <- pmax(eig$values, 1e-10)
@@ -217,11 +186,22 @@ em_lmer <- function(formula, data, REML = TRUE, n_em = 25,
   })
   theta_vec <- (L / sqrt(sigma2))[lower.tri(L, diag = TRUE)]
 
-  # EM에서 계산한 초기값(theta_vec)을 start 인자로 전달하여 lmer() 적합
-  # 최종 수렴은 lmer()의 기본 옵티마이저(Newton-Raphson 또는 BOBYQA)가 담당
   lmer(formula, data = data, REML = REML,
        start = list(theta = theta_vec),
        control = control, ...)
+}
+
+# ── fit_model(): 추정 방법에 따라 lmer 또는 em_lmer 호출 ─────────────────────
+#
+# estimation_method 파라미터에 따라 적합 함수를 선택합니다:
+#   "lmer"     : lme4::lmer() 직접 호출 (빠르고 표준적)
+#   "em_lmer"  : EM 알고리즘 초기값 + lmer() (Stata 방식, 수렴 안정성 높음)
+fit_model <- function(formula, data, REML, control, method = "lmer") {
+  if (method == "em_lmer") {
+    em_lmer(formula, data = data, REML = REML, control = control)
+  } else {
+    lmer(formula, data = data, REML = REML, control = control)
+  }
 }
 
 # ── calc_lrt_vs_lm(): LR test vs. linear model (Stata 스타일) ─────────────────
@@ -749,6 +729,8 @@ function(req) {
     # 공분산 구조: "un" = Unstructured (분산+공분산 모두 추정, lme4: | )
     #              "ind" = Independent (분산만 추정, 공분산=0, lme4: || )
     cov_struct   <- if (!is.null(body$cov_struct)) as.character(body$cov_struct) else "un"
+    # 추정 방법: "lmer" = lme4 기본 (빠름), "em_lmer" = EM 초기값 + lmer (Stata 방식)
+    est_method   <- if (!is.null(body$estimation_method)) as.character(body$estimation_method) else "lmer"
     l2_covs_original <- l2_covs   # CWC 처리 전 원본 보존 (rcode 로그용)
     cross_interactions <- normalize_cross_interactions(body$cross_interactions)
 
@@ -813,7 +795,8 @@ function(req) {
         l1_centering = l1_centering,
         l2_centering = l2_centering,
         cov_struct   = cov_struct,
-        cwc_gm_vars  = as.list(cwc_gm_vars)
+        cwc_gm_vars  = as.list(cwc_gm_vars),
+        estimation_method = est_method
       )
     )
 
@@ -885,9 +868,9 @@ function(req) {
     f0_str   <- paste0(outcome, " ~ 1 + (1 | ", group_var, ")")
     f0       <- as.formula(f0_str)
     f0_fixed <- as.formula(paste0(outcome, " ~ 1"))
-    em_ctrl  <- lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
-    m0    <- suppressWarnings(em_lmer(f0, data = df, REML = TRUE, control = em_ctrl))
-    m0_ml <- suppressWarnings(em_lmer(f0, data = df, REML = FALSE, control = em_ctrl))
+    lmer_ctrl <- lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
+    m0    <- suppressWarnings(fit_model(f0, data = df, REML = TRUE, control = lmer_ctrl, method = est_method))
+    m0_ml <- suppressWarnings(fit_model(f0, data = df, REML = FALSE, control = lmer_ctrl, method = est_method))
 
     rcode <- c(rcode,
       "# ── 4. Model 0: 기저모형 (Null Model) ──",
@@ -928,8 +911,8 @@ function(req) {
                        paste(all_fixed, collapse = " + "),
                        " + (1 | ", group_var, ")")
       f1_fixed <- as.formula(paste0(outcome, " ~ ", paste(all_fixed, collapse = " + ")))
-      m1    <- suppressWarnings(em_lmer(as.formula(f1_str), data = df, REML = TRUE))
-      m1_ml <- suppressWarnings(em_lmer(as.formula(f1_str), data = df, REML = FALSE))
+      m1    <- suppressWarnings(fit_model(as.formula(f1_str), data = df, REML = TRUE, control = lmer_ctrl, method = est_method))
+      m1_ml <- suppressWarnings(fit_model(as.formula(f1_str), data = df, REML = FALSE, control = lmer_ctrl, method = est_method))
       lrt01 <- suppressWarnings(anova(m0_ml, m1_ml))
 
       result$ri_model <- list(
@@ -984,9 +967,8 @@ function(req) {
                          " + (", slope_part, re_bar, group_var, ")")
 
         # 에러 시 문자열 반환 → is.character()로 판별 (S4 모형에 $ 사용 금지)
-        em_ctrl <- lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
         m2 <- tryCatch(
-          suppressWarnings(em_lmer(as.formula(f2_str), data = df, REML = TRUE, control = em_ctrl)),
+          suppressWarnings(fit_model(as.formula(f2_str), data = df, REML = TRUE, control = lmer_ctrl, method = est_method)),
           error = function(e) e$message
         )
 
@@ -994,7 +976,7 @@ function(req) {
           result$rs_model_error <- paste0("수렴 실패: ", m2)
         } else {
           m2_ml <- tryCatch(
-            suppressWarnings(em_lmer(as.formula(f2_str), data = df, REML = FALSE, control = em_ctrl)),
+            suppressWarnings(fit_model(as.formula(f2_str), data = df, REML = FALSE, control = lmer_ctrl, method = est_method)),
             error = function(e) e$message
           )
           lrt12 <- if (!is.character(m2_ml)) tryCatch(suppressWarnings(anova(m1_ml, m2_ml)), error = function(e) NULL) else NULL
@@ -1066,9 +1048,8 @@ function(req) {
           f3_str <- paste0(outcome, " ~ ", fixed_part,
                            " + (", slope_part3, re_bar3, group_var, ")")
 
-          em_ctrl3 <- lmerControl(optimizer = "bobyqa", optCtrl = list(maxfun = 2e5))
           m3 <- tryCatch(
-            suppressWarnings(em_lmer(as.formula(f3_str), data = df, REML = TRUE, control = em_ctrl3)),
+            suppressWarnings(fit_model(as.formula(f3_str), data = df, REML = TRUE, control = lmer_ctrl, method = est_method)),
             error = function(e) e$message
           )
 
@@ -1076,7 +1057,7 @@ function(req) {
             result$cl_model_error <- paste0("수렴 실패: ", m3)
           } else {
             m3_ml <- tryCatch(
-              suppressWarnings(em_lmer(as.formula(f3_str), data = df, REML = FALSE, control = em_ctrl3)),
+              suppressWarnings(fit_model(as.formula(f3_str), data = df, REML = FALSE, control = lmer_ctrl, method = est_method)),
               error = function(e) e$message
             )
             prev_m_ml <- m1_ml
